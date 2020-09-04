@@ -1,10 +1,7 @@
 const User = require('../models/user');
 const jwt = require('jsonwebtoken');
-const SP = require('sparkpost');
-const SparkPost = require('sparkpost');
-const client = new SparkPost('process.env.SPARKPOST_API_KEY');
-//const sgMail = require('@sendgrid/mail');
-//sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+const sgMail = require('@sendgrid/mail');
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 /*exports.signup = (req, res) => {
   console.log(req.body);
 
@@ -48,19 +45,20 @@ exports.signup = (req, res) => {
       process.env.JWT_ACCOUNT_ACTIVATION,
       { expiresIn: '10m' }
     );
+    //Mail template
     const emailData = {
       from: process.env.EMAIL_FROM,
       to: email,
       subject: `Account activation link`,
       html: `<h1>Please use the following link to activate your account</h1>
-          <p>${process.env.CLIENT_URL}/auth/activate${token}</p>
+          <p>${process.env.CLIENT_URL}/auth/activate/${token}</p>
           <hr />
           <p>This email contain sensitive information</p>
           <p>${process.env.CLIENT_URL}</p>
           `,
     };
-
-    client.transmissions.send(emailData).then(
+    //
+    sgMail.send(emailData).then(
       (sent) => {
         console.log(`Email has been sent to ${email}. Follow the instruction`);
         return res.json({
@@ -79,31 +77,28 @@ exports.signup = (req, res) => {
 };
 
 //Activation account
-
 exports.accountActivation = (req, res) => {
   const { token } = req.body;
-
   if (token) {
-    //verify if is valid token
     jwt.verify(token, process.env.JWT_ACCOUNT_ACTIVATION, function (
       err,
-      decoded
+      decode
     ) {
       if (err) {
-        console.log('There are errors', err);
+        console.log('JWT VERIFY IN ACCOUNT ACTIVATION ERROR', err);
         return res.status(401).json({
-          error: 'Expired link. Sign up',
+          error: 'Expired Link. Signup again',
         });
       }
-      const { name, email, password } = jwt.decode();
+      const { name, email, password } = jwt.decode(token);
 
       const user = new User({ name, email, password });
 
       user.save((err, user) => {
         if (err) {
-          console.log('Save user in account activation error', err);
+          console.log('SAVE USER N ACCOUNT ACTIVATION ERROR', err);
           return res.status(401).json({
-            error: 'Error saving user in database. Try signup again',
+            error: 'Errro saving in database. Try signup again',
           });
         }
         return res.json({
@@ -113,7 +108,36 @@ exports.accountActivation = (req, res) => {
     });
   } else {
     return res.json({
-      message: 'Something weent wrong, try again!',
+      message: 'Something went wrong, try again',
     });
   }
+};
+
+//
+exports.signin = (req, res) => {
+  const { email, password } = req.body;
+  //Check if user exits
+  User.findOne({ email }).exec((err, user) => {
+    if (err || !user) {
+      return res.status(400).json({
+        error: 'User with that email does not exits. Please signup.',
+      });
+    }
+    //authenticate
+    if (!user.authenticate(password)) {
+      return res.status(400).json({
+        error: 'Email and password do not match',
+      });
+    }
+    //generate token and sent to client
+    const token = jwt.sign({ _id: user._id }, process.env.JWT_SECRET, {
+      expiresIn: '7d',
+    });
+    const { _id, name, email, role } = user;
+
+    return res.json({
+      token,
+      user: { _id, name, email, role },
+    });
+  });
 };
